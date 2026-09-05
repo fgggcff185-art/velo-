@@ -21,7 +21,7 @@ export function Sidebar() {
   ];
 
   return (
-    <div className="sidebar">
+    <div className={`sidebar ${sidebarView ? 'has-panel' : ''}`}>
       <div className="sidebar-rail">
         <div className="rail-group">
           {items.map(({ id, icon: Icon, label }) => (

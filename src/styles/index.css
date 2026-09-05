@@ -3284,3 +3284,55 @@ body.sashing .xterm {
 :root[data-theme='velo-light'] .clash-theirs {
   background: linear-gradient(90deg, #d5dbe6, #c3cbda) !important;
 }
+
+/* ============ Mobile responsive (Capacitor) ============ */
+@media (max-width: 768px) {
+  html, body, #root { overflow: auto; height: 100%; }
+  .app { height: 100dvh; overflow: hidden; }
+  /* Titlebar: hide desktop window controls, compact */
+  .titlebar { height: 48px; min-height: 48px; padding-top: env(safe-area-inset-top); }
+  .titlebar-right { display: none !important; }
+  .titlebar-center { display: none; }
+  .titlebar-left { gap: 6px; }
+  .titlebar-appname { font-size: 14px; }
+  /* Main: stack, no overlap */
+  .app-main { flex: 1; min-height: 0; overflow: hidden; }
+  /* Sidebar: only rail visible by default, panel as overlay when active */
+  .sidebar { width: 46px !important; min-width: 46px; border-right: 1px solid var(--border); }
+  .sidebar .sidebar-panel { display: none !important; }
+  .sidebar-rail { width: 46px; }
+  /* When sidebar has panel (user opened explorer/search), show as overlay drawer */
+  .sidebar.has-panel { position: fixed; left: 0; top: 48px; bottom: 0; width: 280px !important; z-index: 600; background: rgba(13,17,23,0.97); box-shadow: 4px 0 24px rgba(0,0,0,0.5); }
+  .sidebar.has-panel .sidebar-panel { display: flex !important; width: 234px; }
+  .sidebar.has-panel .sidebar-rail { display: flex; }
+  /* Editor */
+  .editor-area { flex: 1; min-width: 0; width: calc(100% - 46px); }
+  .tabsbar { height: 36px; }
+  .tab { min-width: 90px; max-width: 140px; font-size: 11.5px; }
+  /* Welcome: compact */
+  .welcome { padding: 16px 12px; gap: 8px; justify-content: flex-start; padding-top: 24px; overflow-y: auto; }
+  .welcome-title { font-size: 30px; line-height: 1.1; text-align: center; }
+  .welcome-sub { font-size: 13px; text-align: center; margin-bottom: 12px; }
+  .welcome-actions { flex-direction: column; width: 100%; max-width: 280px; }
+  .welcome-actions .btn-primary, .welcome-actions .btn-ghost { width: 100%; justify-content: center; }
+  .welcome-shortcuts { grid-template-columns: 1fr; gap: 6px 0; margin-top: 16px; font-size: 11px; width: 100%; max-width: 300px; }
+  /* AI panel as overlay on mobile - show when rendered */
+  .ai-panel { position: fixed !important; right: 0; top: 48px; bottom: 0; width: 92% !important; max-width: 360px; z-index: 550; border-left: 1px solid var(--border); box-shadow: -4px 0 24px rgba(0,0,0,0.4); }
+  .ai-sash { display: none; }
+  /* Terminal: smaller */
+  .terminal-panel { height: 36% !important; max-height: 220px; }
+  /* Statusbar: wrap, avoid nav overlap */
+  .statusbar { height: auto; min-height: 28px; flex-wrap: wrap; padding: 4px 6px; padding-bottom: calc(4px + env(safe-area-inset-bottom)); font-size: 10.5px; gap: 4px; }
+  .statusbar-left, .statusbar-right { flex-wrap: wrap; gap: 2px; height: auto; }
+  .status-item { padding: 2px 6px; height: auto; }
+  /* Modals & palette: full width */
+  .palette { width: 94vw; max-width: 94vw; }
+  .settings-modal, .settings-modal-modern { width: 96vw; height: 88vh; flex-direction: column; }
+  .settings-sidebar { width: 100%; flex-direction: row; overflow-x: auto; border-right: none; border-bottom: 1px solid var(--border); padding: 8px; gap: 6px; }
+  .settings-nav-item { flex-direction: column; padding: 8px 10px; min-width: 80px; gap: 4px; }
+  .settings-body-modern, .settings-body { padding: 12px; }
+  /* Hide hover-only elements */
+  .msg-copy-btn { opacity: 1; }
+  /* Prevent horizontal scroll */
+  body { overscroll-behavior: none; }
+}
