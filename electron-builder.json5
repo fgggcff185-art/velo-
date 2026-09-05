@@ -1,0 +1,35 @@
+{
+  appId: 'com.velo.codeeditor',
+  productName: 'Velo IDE',
+  copyright: 'Copyright © 2026 Velo IDE',
+  directories: {
+    output: 'release',
+    buildResources: 'build',
+  },
+  files: ['dist/**/*', 'dist-electron/**/*', 'package.json'],
+  asar: true,
+  asarUnpack: ['node_modules/node-pty/**'],
+  npmRebuild: false,
+  compression: 'maximum',
+  win: {
+    icon: 'build/icon.png',
+    artifactName: 'Velo IDE-${version}-${arch}.${ext}',
+    target: [
+      { target: 'nsis', arch: ['x64'] },
+      { target: 'portable', arch: ['x64'] },
+    ],
+  },
+  nsis: {
+    oneClick: false,
+    perMachine: false,
+    allowToChangeInstallationDirectory: true,
+    createDesktopShortcut: true,
+    createStartMenuShortcut: true,
+    shortcutName: 'Velo IDE',
+    uninstallDisplayName: 'Velo IDE - AI Code Editor',
+    artifactName: 'Velo IDE-Setup-${version}.exe',
+  },
+  portable: {
+    artifactName: 'Velo IDE-Portable-${version}.exe',
+  },
+}

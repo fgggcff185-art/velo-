@@ -1,0 +1,36 @@
+/* Monaco editor customizations */
+.monaco-container .monaco-editor,
+.monaco-container .monaco-editor-background,
+.monaco-container .monaco-editor .margin {
+  background-color: transparent !important;
+}
+
+.monaco-container .monaco-editor .line-numbers {
+  color: #3d4657;
+}
+
+.monaco-editor .scroll-decoration {
+  box-shadow: none !important;
+}
+
+/* Ghost text styling */
+.monaco-editor .suggest-widget {
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid #2d3648 !important;
+}
+
+/* AI added lines */
+.monaco-editor .ai-added-line {
+  background: rgba(103, 232, 165, 0.12);
+}
+
+/* Diff editor */
+.diff-container .monaco-diff-editor .monaco-editor-background {
+  background-color: transparent !important;
+}
+
+/* selection in context menus inside tree */
+.tree-item.creating {
+  cursor: text;
+}

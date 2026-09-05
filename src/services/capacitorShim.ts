@@ -1,0 +1,413 @@
+// Mobile shim for window.velo when running outside Electron (Capacitor / Browser)
+// Provides no-op / localStorage fallbacks so the app doesn't crash on Android
+type VeloShim = Record<string, any>;
+
+function createNoop() {
+  return () => Promise.resolve(undefined);
+}
+
+function makeShim(): VeloShim {
+  // Store listeners for AI streaming emulation
+  const aiChunkListeners = new Set<(streamId: string, chunk: string) => void>();
+  const aiDoneListeners = new Set<(streamId: string, full: string) => void>();
+  const aiErrorListeners = new Set<(streamId: string, error: string) => void>();
+  const fsChangedListeners = new Set<(p: string) => void>();
+  const terminalDataListeners = new Set<(id: string, data: string) => void>();
+  const terminalExitListeners = new Set<(id: string) => void>();
+
+  // Settings stored in localStorage on mobile
+  const SETTINGS_KEY = 'velo_settings_mobile';
+  const getStoredSettings = () => {
+    try {
+      const raw = localStorage.getItem(SETTINGS_KEY);
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  };
+
+  // In-memory virtual file system for demo on mobile
+  const VIRTUAL_FS_KEY = 'velo_virtual_fs';
+  const getVirtualFS = (): Record<string, string> => {
+    try {
+      const raw = localStorage.getItem(VIRTUAL_FS_KEY);
+      return raw ? JSON.parse(raw) : { '/welcome.js': 'console.log("Hello from Velo Mobile!");\n' };
+    } catch {
+      return {};
+    }
+  };
+  const saveVirtualFS = (fs: Record<string, string>) => {
+    localStorage.setItem(VIRTUAL_FS_KEY, JSON.stringify(fs));
+    // notify watchers
+    fsChangedListeners.forEach((cb) => cb('/'));
+  };
+
+  // Helper to stream OpenAI compatible API directly from browser (no Electron)
+  async function streamBrowserAI(req: any) {
+    const streamId = req.streamId;
+    let base = req.baseUrl?.trim();
+    let headers: Record<string, string> = { 'Content-Type': 'application/json', ...(req.headers || {}) };
+    if (!base) {
+      const defaults: Record<string, string> = {
+        openai: 'https://api.openai.com/v1',
+        deepseek: 'https://api.deepseek.com/v1',
+        openrouter: 'https://openrouter.ai/api/v1',
+        groq: 'https://api.groq.com/openai/v1',
+        qwen: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+        zhipu: 'https://open.bigmodel.cn/api/paas/v4',
+        moonshot: 'https://api.moonshot.cn/v1',
+        minimax: 'https://api.minimax.chat/v1',
+        modelscope: 'https://api-inference.modelscope.cn/v1',
+        siliconflow: 'https://api.siliconflow.cn/v1',
+      };
+      base = defaults[req.provider] || 'https://api.openai.com/v1';
+    }
+    if (req.provider !== 'anthropic' && req.provider !== 'gemini' && req.provider !== 'ollama') {
+      if (req.apiKey) headers['Authorization'] = `Bearer ${req.apiKey}`;
+      if (req.provider === 'openrouter') {
+        headers['HTTP-Referer'] = 'https://velo.code-editor';
+        headers['X-Title'] = 'Velo Mobile';
+      }
+    }
+
+    try {
+      let res: Response;
+      // Simple branching: most providers use /chat/completions SSE
+      if (['openai', 'deepseek', 'qwen', 'zhipu', 'moonshot', 'minimax', 'modelscope', 'siliconflow', 'openrouter', 'groq', 'custom'].includes(req.provider)) {
+        res = await fetch(`${base}/chat/completions`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            model: req.model,
+            messages: req.messages,
+            temperature: req.temperature ?? 0.7,
+            max_tokens: req.maxTokens ?? 4096,
+            stream: true,
+          }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}: ${(await res.text()).slice(0, 400)}`);
+        const reader = res.body?.getReader();
+        if (!reader) throw new Error('No stream');
+        const decoder = new TextDecoder();
+        let buf = '';
+        let full = '';
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+          const lines = buf.split('\n');
+          buf = lines.pop() ?? '';
+          for (const line of lines) {
+            const t = line.trim();
+            if (!t.startsWith('data:')) continue;
+            const payload = t.slice(5).trim();
+            if (payload === '[DONE]') break;
+            if (!payload) continue;
+            try {
+              const json = JSON.parse(payload);
+              const delta = json.choices?.[0]?.delta ?? {};
+              const chunk = delta.content ?? delta.reasoning_content ?? '';
+              if (chunk) {
+                full += delta.content ?? '';
+                aiChunkListeners.forEach((cb) => cb(streamId, chunk));
+              }
+            } catch {}
+          }
+        }
+        aiDoneListeners.forEach((cb) => cb(streamId, full));
+        return { ok: true };
+      } else if (req.provider === 'anthropic') {
+        // Anthropic via browser - may hit CORS, but try
+        const system = req.messages.filter((m: any) => m.role === 'system').map((m: any) => m.content).join('\n\n');
+        const msgs = req.messages.filter((m: any) => m.role !== 'system').map((m: any) => ({ role: m.role, content: m.content }));
+        res = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': req.apiKey || '',
+            'anthropic-version': '2023-06-01',
+            'anthropic-dangerous-direct-browser-access': 'true',
+          },
+          body: JSON.stringify({
+            model: req.model,
+            max_tokens: req.maxTokens ?? 4096,
+            temperature: req.temperature ?? 0.7,
+            system: system || undefined,
+            messages: msgs,
+            stream: true,
+          }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}: ${(await res.text()).slice(0, 400)}`);
+        // Simplified: just read stream as SSE
+        const reader = res.body?.getReader();
+        if (!reader) throw new Error('No stream');
+        const decoder = new TextDecoder();
+        let buf = '';
+        let full = '';
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+          const lines = buf.split('\n');
+          buf = lines.pop() ?? '';
+          for (const line of lines) {
+            const t = line.trim();
+            if (!t.startsWith('data:')) continue;
+            const payload = t.slice(5).trim();
+            if (!payload) continue;
+            try {
+              const json = JSON.parse(payload);
+              if (json.type === 'content_block_delta' && json.delta?.text) {
+                full += json.delta.text;
+                aiChunkListeners.forEach((cb) => cb(streamId, json.delta.text));
+              }
+            } catch {}
+          }
+        }
+        aiDoneListeners.forEach((cb) => cb(streamId, full));
+        return { ok: true };
+      } else {
+        throw new Error(`Provider ${req.provider} not yet supported in mobile browser mode. Use OpenAI/DeepSeek/OpenRouter.`);
+      }
+    } catch (e: any) {
+      const msg = e?.message || String(e);
+      aiErrorListeners.forEach((cb) => cb(streamId, msg));
+      return { error: msg };
+    }
+  }
+
+  return {
+    // Window
+    windowMinimize: async () => {},
+    windowMaximizeToggle: async () => {},
+    windowClose: async () => {},
+    windowForceClose: async () => {},
+    onWindowMaximized: () => () => {},
+    onCloseRequest: () => () => {},
+
+    // Dialog / app
+    openFolderDialog: async () => null,
+    openFileDialog: async () => null,
+    getPathForFile: () => '',
+    openPath: async () => {},
+    showItemInFolder: async () => {},
+
+    // Filesystem - virtual FS on mobile
+    readTree: async (_dir: string) => {
+      const vfs = getVirtualFS();
+      // Return simple tree: each file as leaf
+      const entries = Object.keys(vfs).map((p) => ({
+        name: p.split('/').pop() || p,
+        path: p,
+        isDirectory: false,
+        children: undefined,
+      }));
+      return [{ name: 'Mobile Workspace', path: '/', isDirectory: true, children: entries }];
+    },
+    readFile: async (path: string) => {
+      const vfs = getVirtualFS();
+      if (path in vfs) return { ok: true, content: vfs[path], path };
+      // try to find by suffix
+      const found = Object.entries(vfs).find(([k]) => k.endsWith(path));
+      if (found) return { ok: true, content: found[1], path };
+      return { ok: false, error: 'File not found on mobile virtual FS' };
+    },
+    writeFile: async (path: string, content: string) => {
+      const vfs = getVirtualFS();
+      vfs[path] = content;
+      saveVirtualFS(vfs);
+      return { ok: true };
+    },
+    createFile: async (dir: string, name: string) => {
+      const p = `${dir.replace(/\/$/, '')}/${name}`;
+      const vfs = getVirtualFS();
+      if (vfs[p]) return { ok: false, error: 'File exists' };
+      vfs[p] = '';
+      saveVirtualFS(vfs);
+      return { ok: true, path: p };
+    },
+    createFolder: async (_dir: string, _name: string) => ({ ok: true }),
+    rename: async (oldPath: string, newName: string) => {
+      const vfs = getVirtualFS();
+      if (!(oldPath in vfs)) return { ok: false, error: 'Not found' };
+      const newPath = oldPath.split('/').slice(0, -1).join('/') + '/' + newName;
+      vfs[newPath] = vfs[oldPath];
+      delete vfs[oldPath];
+      saveVirtualFS(vfs);
+      return { ok: true, path: newPath };
+    },
+    deletePath: async (path: string) => {
+      const vfs = getVirtualFS();
+      delete vfs[path];
+      // also delete children if folder
+      Object.keys(vfs).forEach((k) => { if (k.startsWith(path + '/')) delete vfs[k]; });
+      saveVirtualFS(vfs);
+      return { ok: true };
+    },
+    copyPath: async () => ({ ok: true }),
+    clipboardWrite: async (text: string) => { try { await navigator.clipboard.writeText(text); } catch {} },
+    clipboardRead: async () => { try { return await navigator.clipboard.readText(); } catch { return ''; } },
+    watchFolder: async () => {},
+    unwatchFolder: async () => {},
+    onFsChanged: (cb: (p: string) => void) => {
+      fsChangedListeners.add(cb);
+      return () => fsChangedListeners.delete(cb);
+    },
+    search: async (_root: string, query: string, _opts: any) => {
+      const vfs = getVirtualFS();
+      const results: any[] = [];
+      const isRegex = _opts?.regex;
+      let re: RegExp | null = null;
+      if (isRegex) try { re = new RegExp(query, _opts?.caseSensitive ? '' : 'i'); } catch {}
+      for (const [path, content] of Object.entries(vfs)) {
+        const lines = content.split('\n');
+        lines.forEach((line, idx) => {
+          const match = re ? re.test(line) : line.toLowerCase().includes(query.toLowerCase());
+          if (match) results.push({ path, line: idx + 1, preview: line.slice(0, 120) });
+        });
+      }
+      return results;
+    },
+    listAllFiles: async (_root: string) => Object.keys(getVirtualFS()),
+
+    // Terminal - not supported
+    terminalCreate: async () => {},
+    detectShells: async () => [],
+    terminalWrite: async () => {},
+    terminalResize: async () => {},
+    terminalKill: async () => {},
+    onTerminalData: (cb: any) => { terminalDataListeners.add(cb); return () => terminalDataListeners.delete(cb); },
+    onTerminalExit: (cb: any) => { terminalExitListeners.add(cb); return () => terminalExitListeners.delete(cb); },
+
+    // Exec
+    exec: async () => ({ ok: false, error: 'exec not supported on mobile', stdout: '', stderr: '' }),
+
+    // AI - browser streaming
+    aiChat: async (req: any) => streamBrowserAI(req),
+    aiComplete: async (req: any) => {
+      // non-streaming: do one fetch and return text
+      const fakeStreamId = `complete-${Date.now()}`;
+      let full = '';
+      const offChunk = (sid: string, chunk: string) => { if (sid === req.streamId || sid === fakeStreamId) full += chunk; };
+      aiChunkListeners.add(offChunk as any);
+      const r = await streamBrowserAI({ ...req, streamId: req.streamId || fakeStreamId });
+      aiChunkListeners.delete(offChunk as any);
+      if ((r as any)?.error) return { error: (r as any).error };
+      return { text: full };
+    },
+    aiAbort: async () => {},
+    aiListModels: async () => ({ models: [] }),
+    netFetch: async (url: string, headers?: Record<string, string>) => {
+      try {
+        const res = await fetch(url, { headers });
+        const body = await res.text();
+        if (!res.ok) return { error: `HTTP ${res.status}: ${body.slice(0, 300)}`, body };
+        return { body, status: res.status };
+      } catch (e: any) {
+        return { error: e?.message || String(e) };
+      }
+    },
+    onAIChunk: (cb: (sid: string, chunk: string) => void) => {
+      aiChunkListeners.add(cb);
+      return () => aiChunkListeners.delete(cb);
+    },
+    onAIDone: (cb: (sid: string, full: string) => void) => {
+      aiDoneListeners.add(cb);
+      return () => aiDoneListeners.delete(cb);
+    },
+    onAIError: (cb: (sid: string, error: string) => void) => {
+      aiErrorListeners.add(cb);
+      return () => aiErrorListeners.delete(cb);
+    },
+
+    // Store / settings
+    getSettings: async () => {
+      const stored = getStoredSettings();
+      // provide defaults if empty
+      if (!stored || Object.keys(stored).length === 0) {
+        return { theme: 'velo-dark', language: 'ar', autoSave: true, keybindings: {} };
+      }
+      return stored;
+    },
+    setSettings: async (patch: any) => {
+      const current = getStoredSettings();
+      const next = { ...current, ...patch };
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(next));
+      return next;
+    },
+    getAppInfo: async () => ({ version: '2.0.0-mobile', platform: 'android', arch: 'arm64' }),
+
+    // History
+    historySave: async () => {},
+    historyList: async () => [],
+    historyRead: async () => '',
+
+    // Plugins
+    pluginsList: async () => [],
+    pluginsOpenFolder: async () => {},
+
+    // DB (use localStorage)
+    dbSave: async (key: string, data: unknown) => {
+      localStorage.setItem(`velo_db_${key}`, JSON.stringify(data));
+      return { ok: true };
+    },
+    dbList: async () => {
+      const keys: any[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k?.startsWith('velo_db_')) keys.push({ key: k.replace('velo_db_', ''), keyFull: k });
+      }
+      return keys;
+    },
+    dbLoad: async (key: string) => {
+      const raw = localStorage.getItem(`velo_db_${key}`);
+      return raw ? JSON.parse(raw) : null;
+    },
+    dbDelete: async (key: string) => {
+      localStorage.removeItem(`velo_db_${key}`);
+      return { ok: true };
+    },
+
+    // MCP
+    mcpConnect: async () => ({ ok: false, error: 'MCP not supported on mobile' }),
+    mcpDisconnect: async () => {},
+    mcpCallTool: async () => ({ ok: false, error: 'MCP not supported on mobile' }),
+
+    // Extensions
+    extSearch: async () => ({ ok: true, results: [] }),
+    extInstall: async () => ({ ok: false, error: 'Extensions not supported on mobile' }),
+    extInstalled: async () => [],
+    extUninstall: async () => ({ ok: false }),
+    extReadFile: async () => '',
+  };
+}
+
+export function installCapacitorShim() {
+  const isElectron = !!(window as any).velo && typeof (window as any).velo.readTree === 'function' && navigator.userAgent.includes('Electron');
+  const isCapacitor = (window as any).Capacitor !== undefined || location.protocol === 'capacitor:';
+  const needsShim = !isElectron || isCapacitor || !(window as any).velo;
+  
+  if (needsShim && !(window as any).__veloShimInstalled) {
+    // If window.velo doesn't exist, create it. If it exists but is partial, merge.
+    const existing = (window as any).velo || {};
+    const shim = makeShim();
+    // Only fill missing methods
+    for (const [k, v] of Object.entries(shim)) {
+      if (!(k in existing)) existing[k] = v;
+    }
+    // Ensure listeners for AI still use shim's sets even if existing had them
+    if (!existing.onAIChunk) existing.onAIChunk = shim.onAIChunk;
+    if (!existing.onAIDone) existing.onAIDone = shim.onAIDone;
+    if (!existing.onAIError) existing.onAIError = shim.onAIError;
+    if (!existing.onFsChanged) existing.onFsChanged = shim.onFsChanged;
+
+    (window as any).velo = existing;
+    (window as any).__veloShimInstalled = true;
+    console.log('[Velo Mobile Shim] installed - running in mobile/browser mode');
+  }
+}
+
+// Auto-install immediately
+if (typeof window !== 'undefined') {
+  installCapacitorShim();
+}
