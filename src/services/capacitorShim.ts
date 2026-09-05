@@ -320,18 +320,62 @@ function makeShim(): VeloShim {
       return () => aiErrorListeners.delete(cb);
     },
 
-    // Store / settings
+    // Store / settings - must return FULL settings like FALLBACK or App crashes with "reading 'undefined'"
     getSettings: async () => {
+      const FALLBACK_MOBILE = {
+        providers: {
+          gemini: { apiKey: '', model: 'gemini-2.0-flash', baseUrl: '' },
+          openai: { apiKey: '', model: 'gpt-4o', baseUrl: '' },
+          anthropic: { apiKey: '', model: 'claude-3-5-sonnet-20241022', baseUrl: '' },
+          deepseek: { apiKey: '', model: 'deepseek-chat', baseUrl: '' },
+          groq: { apiKey: '', model: 'llama-3.3-70b-versatile', baseUrl: 'https://api.groq.com/openai/v1' },
+          custom: { apiKey: '', model: 'deepseek-chat', baseUrl: '' },
+          ollama: { apiKey: '', model: 'qwen3:8b', baseUrl: 'http://localhost:11434' },
+          openrouter: { apiKey: '', model: 'openrouter/auto', baseUrl: 'https://openrouter.ai/api/v1' },
+          qwen: { apiKey: '', model: 'qwen3-coder-plus', baseUrl: '' },
+          zhipu: { apiKey: '', model: 'glm-4-plus', baseUrl: '' },
+          moonshot: { apiKey: '', model: 'moonshot-v1-8k', baseUrl: '' },
+          minimax: { apiKey: '', model: 'abab6.5s-chat', baseUrl: '' },
+          modelscope: { apiKey: '', model: 'Qwen/Qwen3-Coder-480B-A35B-Instruct', baseUrl: '' },
+          siliconflow: { apiKey: '', model: 'deepseek-ai/DeepSeek-V3', baseUrl: '' },
+        },
+        defaultProvider: 'openrouter',
+        language: 'ar',
+        ghostText: true,
+        autoSave: true,
+        formatOnSave: false,
+        stickyScroll: true,
+        inlayHints: true,
+        errorLens: true,
+        theme: 'velo-dark',
+        fontSize: 14,
+        tabSize: 2,
+        wordWrap: false,
+        terminalShell: '',
+        keybindings: {},
+        mcpServers: [],
+        failoverEnabled: true,
+        localFallback: true,
+        providerPool: [],
+        customProvider: { enabled: false, id: 'custom_openai', displayName: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', apiKey: '', models: [], headers: {} },
+        customProviders: [],
+        snippets: {},
+        recentFolders: [],
+        lastFolder: '',
+        session: {},
+      } as any;
       const stored = getStoredSettings();
-      // provide defaults if empty
-      if (!stored || Object.keys(stored).length === 0) {
-        return { theme: 'velo-dark', language: 'ar', autoSave: true, keybindings: {} };
-      }
-      return stored;
+      // Merge stored over fallback so new keys are added
+      if (!stored || Object.keys(stored).length === 0) return FALLBACK_MOBILE;
+      // deep merge providers
+      const merged = { ...FALLBACK_MOBILE, ...stored };
+      if (stored.providers) merged.providers = { ...FALLBACK_MOBILE.providers, ...stored.providers };
+      return merged;
     },
     setSettings: async (patch: any) => {
       const current = getStoredSettings();
       const next = { ...current, ...patch };
+      if (patch.providers) next.providers = { ...(current.providers || {}), ...patch.providers };
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(next));
       return next;
     },
