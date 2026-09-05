@@ -23,6 +23,7 @@ import {
   History,
   Clock,
   Brain,
+  X,
 } from 'lucide-react';
 import { useAIStore } from '../../store/useAIStore';
 import { useUIStore } from '../../store/useUIStore';
@@ -233,6 +234,14 @@ export function AIChat() {
       }}
     >
       <div className="ai-chat-header">
+        <button
+          onClick={() => useUIStore.getState().setAIPanel(false)}
+          className="panel-action-btn"
+          title="إغلاق الشات والعودة للمحرر"
+          style={{ display: 'flex' }}
+        >
+          <X size={16} />
+        </button>
         <div className="ai-mode-switch">
           <button className={mode === 'chat' ? 'active' : ''} onClick={() => setMode('chat')}>
             <MessageSquare size={13} /> {tr('chat')}

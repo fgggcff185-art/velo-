@@ -434,7 +434,7 @@ export function SettingsModal() {
             <X size={15} />
           </button>
         </div>
-        <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
+        <div className="settings-content-wrapper" style={{ display: 'flex', flex: 1, minHeight: 0 }}>
           <div className="settings-sidebar">
             {(
               [

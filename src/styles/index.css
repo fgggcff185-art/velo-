@@ -3334,10 +3334,13 @@ body.sashing .xterm {
   .status-item { padding: 2px 6px; height: auto; }
   /* Modals & palette: full width */
   .palette { width: 94vw; max-width: 94vw; }
-  .settings-modal, .settings-modal-modern { width: 96vw; height: 88vh; flex-direction: column; }
-  .settings-sidebar { width: 100%; flex-direction: row; overflow-x: auto; border-right: none; border-bottom: 1px solid var(--border); padding: 8px; gap: 6px; }
-  .settings-nav-item { flex-direction: column; padding: 8px 10px; min-width: 80px; gap: 4px; }
-  .settings-body-modern, .settings-body { padding: 12px; }
+  .settings-modal, .settings-modal-modern { width: 96vw; height: 88vh; flex-direction: column; max-height: 92vh; }
+  .settings-content-wrapper { flex-direction: column !important; }
+  .settings-sidebar { width: 100% !important; flex-direction: row !important; overflow-x: auto; overflow-y: hidden; border-right: none !important; border-bottom: 1px solid var(--border); padding: 8px; gap: 6px; flex-shrink: 0; height: auto; max-height: 84px; }
+  .settings-nav-item { flex-direction: column; padding: 8px 10px; min-width: 80px; gap: 4px; flex-shrink: 0; }
+  .settings-nav-icon { width: 24px; height: 24px; }
+  .settings-nav-desc { display: none; }
+  .settings-body-modern, .settings-body { padding: 12px; flex: 1; overflow-y: auto; }
   /* Hide hover-only elements */
   .msg-copy-btn { opacity: 1; }
   /* Prevent horizontal scroll */

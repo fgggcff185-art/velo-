@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { GitBranch, Sparkles, Zap, Database } from 'lucide-react';
+import { Capacitor } from '@capacitor/core';
 import { useGitStore } from '../../store/useGitStore';
 import { useEditorStore } from '../../store/useEditorStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
@@ -28,6 +29,7 @@ export function StatusBar() {
 
   const activeTab = tabs.find((t) => t.id === activeTabId);
   const tr = useT();
+  const isNativeMobile = Capacitor.isNativePlatform() || (typeof window !== 'undefined' && window.innerWidth < 768);
 
   useEffect(() => {
     const handler = (e: Event) => {
@@ -79,10 +81,12 @@ export function StatusBar() {
             <span className="status-item">{activeTab.language}</span>
           </>
         )}
-        <button className="status-item clickable" onClick={() => setTerminalOpen(!terminalOpen)}>
-          <Zap size={12} /> {tr('statusTerminal')}
-        </button>
-        <span className="status-item">Velo IDE v{appInfo?.version || '2.0.0'}</span>
+        {!isNativeMobile && (
+          <button className="status-item clickable" onClick={() => setTerminalOpen(!terminalOpen)}>
+            <Zap size={12} /> {tr('statusTerminal')}
+          </button>
+        )}
+        <span className="status-item">Velo IDE v{appInfo?.version || '2.0.0'}{isNativeMobile ? '-mobile' : ''}</span>
       </div>
     </div>
   );

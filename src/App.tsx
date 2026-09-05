@@ -313,6 +313,29 @@ export default function App() {
     };
   }, [openPalette, toggleSidebarView, setTerminalOpen, terminalOpen, toggleAIPanel, setSettingsOpen, keybindings, zenMode, splitEditor]);
 
+  // ===== Android back button handler =====
+  useEffect(() => {
+    let remover: { remove: () => void } | null = null;
+    (async () => {
+      try {
+        const { Capacitor } = await import('@capacitor/core');
+        if (!Capacitor.isNativePlatform()) return;
+        const { App: CapApp } = await import('@capacitor/app');
+        const listener = await CapApp.addListener('backButton', ({ canGoBack }) => {
+          const s = useUIStore.getState();
+          if (s.settingsOpen) { s.setSettingsOpen(false); return; }
+          if (s.aiPanelOpen) { s.setAIPanel(false); return; }
+          if (s.sidebarView) { s.setSidebarView(null); return; }
+          if (s.paletteOpen) { s.closePalette(); return; }
+          if (canGoBack) window.history.back();
+          else CapApp.exitApp();
+        });
+        remover = listener;
+      } catch {}
+    })();
+    return () => { remover?.remove(); };
+  }, []);
+
   return (
     <div className={`app ${zenMode ? 'zen' : ''}`}>
       <Titlebar />

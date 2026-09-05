@@ -1,5 +1,7 @@
 // Mobile shim for window.velo when running outside Electron (Capacitor / Browser)
 // Provides no-op / localStorage fallbacks so the app doesn't crash on Android
+import { Capacitor } from '@capacitor/core';
+import { NativeFileSystemService } from './nativeFileSystem';
 type VeloShim = Record<string, any>;
 
 function createNoop() {
@@ -26,19 +28,22 @@ function makeShim(): VeloShim {
     }
   };
 
-  // In-memory virtual file system for demo on mobile
+  // Native FS init (Documents/VeloProjects) + fallback virtual
+  let nativeReady = false;
+  NativeFileSystemService.initWorkspace().then(() => { nativeReady = NativeFileSystemService.isAvailable(); }).catch(() => {});
+
+  // In-memory virtual file system for fallback / browser demo
   const VIRTUAL_FS_KEY = 'velo_virtual_fs';
   const getVirtualFS = (): Record<string, string> => {
     try {
       const raw = localStorage.getItem(VIRTUAL_FS_KEY);
-      return raw ? JSON.parse(raw) : { '/welcome.js': 'console.log("Hello from Velo Mobile!");\n' };
+      return raw ? JSON.parse(raw) : { '/welcome.js': 'console.log("Hello from Velo Mobile!");\n', '/README.md': '# Velo Mobile\nWelcome! Files here are saved permanently via Native Filesystem.\n' };
     } catch {
       return {};
     }
   };
   const saveVirtualFS = (fs: Record<string, string>) => {
     localStorage.setItem(VIRTUAL_FS_KEY, JSON.stringify(fs));
-    // notify watchers
     fsChangedListeners.forEach((cb) => cb('/'));
   };
 
@@ -185,13 +190,19 @@ function makeShim(): VeloShim {
     onWindowMaximized: () => () => {},
     onCloseRequest: () => () => {},
 
-    // Dialog / app - mobile: prompt for virtual folder
+    // Dialog / app - mobile: creates real folder in Documents/VeloProjects when native available
     openFolderDialog: async () => {
       try {
-        const name = window.prompt('اسم المجلد الجديد (سيتم إنشاؤه في الذاكرة):', 'my-project');
+        const name = window.prompt(Capacitor.isNativePlatform() ? 'اسم المجلد الجديد (سيُحفظ في Documents/VeloProjects):' : 'اسم المجلد الجديد (سيتم إنشاؤه في الذاكرة):', 'my-project');
         if (!name) return null;
         const clean = name.trim().replace(/[\\/]/g, '-').slice(0, 30) || 'project';
         const path = `/${clean}`;
+        if (Capacitor.isNativePlatform() && NativeFileSystemService.isAvailable()) {
+          await NativeFileSystemService.createDirectory(clean, '');
+          await NativeFileSystemService.writeFile(`${clean}/welcome.js`, `// ${clean}\nconsole.log("Hello from ${clean}");\n`);
+          fsChangedListeners.forEach((cb) => cb(path));
+          return path;
+        }
         const vfs = getVirtualFS();
         if (!Object.keys(vfs).some((k) => k.startsWith(path + '/'))) {
           vfs[`${path}/welcome.js`] = `// ${clean}\nconsole.log("Hello from ${clean}");\n`;
@@ -212,33 +223,63 @@ function makeShim(): VeloShim {
     openPath: async () => {},
     showItemInFolder: async () => {},
 
-    // Filesystem - virtual FS on mobile
+    // Filesystem - native (Documents/VeloProjects) with virtual fallback
     readTree: async (_dir: string) => {
+      if (Capacitor.isNativePlatform() && NativeFileSystemService.isAvailable()) {
+        try {
+          const children = await NativeFileSystemService.buildTree('');
+          // Convert native tree to format expected by FileExplorer, and handle empty
+          if (children.length === 0) {
+            // Create welcome file if empty
+            await NativeFileSystemService.writeFile('welcome.js', 'console.log("Hello from Velo Mobile!");\n');
+            const fresh = await NativeFileSystemService.buildTree('');
+            return [{ name: 'VeloProjects', path: '/', isDirectory: true, children: fresh }];
+          }
+          return [{ name: 'VeloProjects', path: '/', isDirectory: true, children }];
+        } catch (e) { console.warn('Native readTree failed, fallback virtual', e); }
+      }
       const vfs = getVirtualFS();
-      // Return simple tree: each file as leaf
       const entries = Object.keys(vfs).map((p) => ({
         name: p.split('/').pop() || p,
         path: p,
         isDirectory: false,
         children: undefined,
       }));
-      return [{ name: 'Mobile Workspace', path: '/', isDirectory: true, children: entries }];
+      return [{ name: Capacitor.isNativePlatform() ? 'VeloProjects' : 'Mobile Workspace', path: '/', isDirectory: true, children: entries }];
     },
     readFile: async (path: string) => {
+      const clean = path.replace(/^\//, '');
+      if (Capacitor.isNativePlatform() && NativeFileSystemService.isAvailable()) {
+        const data = await NativeFileSystemService.readFile(clean);
+        if (data !== null) return { ok: true, content: data, path };
+      }
       const vfs = getVirtualFS();
       if (path in vfs) return { ok: true, content: vfs[path], path };
-      // try to find by suffix
-      const found = Object.entries(vfs).find(([k]) => k.endsWith(path));
+      if (clean && `/` + clean in vfs) return { ok: true, content: vfs[`/${clean}`], path };
+      const found = Object.entries(vfs).find(([k]) => k.endsWith(path) || k.endsWith(clean));
       if (found) return { ok: true, content: found[1], path };
-      return { ok: false, error: 'File not found on mobile virtual FS' };
+      return { ok: false, error: 'File not found' };
     },
     writeFile: async (path: string, content: string) => {
+      const clean = path.replace(/^\//, '');
+      if (Capacitor.isNativePlatform() && NativeFileSystemService.isAvailable()) {
+        const ok = await NativeFileSystemService.writeFile(clean, content);
+        if (ok) { fsChangedListeners.forEach((cb) => cb(path)); return { ok: true }; }
+      }
       const vfs = getVirtualFS();
       vfs[path] = content;
+      if (clean !== path) vfs[`/${clean}`] = content;
       saveVirtualFS(vfs);
       return { ok: true };
     },
     createFile: async (dir: string, name: string) => {
+      const cleanDir = dir.replace(/^\//, '').replace(/\/$/, '');
+      const relPath = cleanDir ? `${cleanDir}/${name}` : name;
+      const fullPath = `/${relPath}`;
+      if (Capacitor.isNativePlatform() && NativeFileSystemService.isAvailable()) {
+        const ok = await NativeFileSystemService.writeFile(relPath, '');
+        if (ok) { fsChangedListeners.forEach((cb) => cb(fullPath)); return { ok: true, path: fullPath }; }
+      }
       const p = `${dir.replace(/\/$/, '')}/${name}`;
       const vfs = getVirtualFS();
       if (vfs[p]) return { ok: false, error: 'File exists' };
@@ -246,8 +287,33 @@ function makeShim(): VeloShim {
       saveVirtualFS(vfs);
       return { ok: true, path: p };
     },
-    createFolder: async (_dir: string, _name: string) => ({ ok: true }),
+    createFolder: async (dir: string, name: string) => {
+      const cleanDir = dir.replace(/^\//, '').replace(/\/$/, '');
+      const cleanName = name.trim().replace(/[\\/]/g, '-');
+      const rel = cleanDir ? `${cleanDir}/${cleanName}` : cleanName;
+      if (Capacitor.isNativePlatform() && NativeFileSystemService.isAvailable()) {
+        const ok = await NativeFileSystemService.createDirectory(cleanName, cleanDir);
+        if (ok) { fsChangedListeners.forEach((cb) => cb(`/${rel}`)); return { ok: true, path: `/${rel}` }; }
+      }
+      return { ok: true, path: `/${rel}` };
+    },
     rename: async (oldPath: string, newName: string) => {
+      const cleanOld = oldPath.replace(/^\//, '');
+      // Native: copy then delete (simple)
+      if (Capacitor.isNativePlatform() && NativeFileSystemService.isAvailable()) {
+        const data = await NativeFileSystemService.readFile(cleanOld);
+        if (data !== null) {
+          const dir = cleanOld.includes('/') ? cleanOld.slice(0, cleanOld.lastIndexOf('/')) : '';
+          const newRel = dir ? `${dir}/${newName}` : newName;
+          const ok = await NativeFileSystemService.writeFile(newRel, data);
+          if (ok) {
+            await NativeFileSystemService.deletePath(cleanOld, false);
+            const newPath = `/${newRel}`;
+            fsChangedListeners.forEach((cb) => cb(newPath));
+            return { ok: true, path: newPath };
+          }
+        }
+      }
       const vfs = getVirtualFS();
       if (!(oldPath in vfs)) return { ok: false, error: 'Not found' };
       const newPath = oldPath.split('/').slice(0, -1).join('/') + '/' + newName;
@@ -257,9 +323,15 @@ function makeShim(): VeloShim {
       return { ok: true, path: newPath };
     },
     deletePath: async (path: string) => {
+      const clean = path.replace(/^\//, '');
+      if (Capacitor.isNativePlatform() && NativeFileSystemService.isAvailable()) {
+        // Try as file first, then dir
+        let ok = await NativeFileSystemService.deletePath(clean, false);
+        if (!ok) ok = await NativeFileSystemService.deletePath(clean, true);
+        if (ok) { fsChangedListeners.forEach((cb) => cb(path)); return { ok: true }; }
+      }
       const vfs = getVirtualFS();
       delete vfs[path];
-      // also delete children if folder
       Object.keys(vfs).forEach((k) => { if (k.startsWith(path + '/')) delete vfs[k]; });
       saveVirtualFS(vfs);
       return { ok: true };
@@ -274,11 +346,37 @@ function makeShim(): VeloShim {
       return () => fsChangedListeners.delete(cb);
     },
     search: async (_root: string, query: string, _opts: any) => {
-      const vfs = getVirtualFS();
-      const results: any[] = [];
       const isRegex = _opts?.regex;
       let re: RegExp | null = null;
       if (isRegex) try { re = new RegExp(query, _opts?.caseSensitive ? '' : 'i'); } catch {}
+      const results: any[] = [];
+      // Try native first
+      if (Capacitor.isNativePlatform() && NativeFileSystemService.isAvailable()) {
+        try {
+          const allFiles: string[] = [];
+          const collect = async (sub: string) => {
+            const ents = await NativeFileSystemService.listFiles(sub);
+            for (const e of ents) {
+              const rel = sub ? `${sub}/${e.name}` : e.name;
+              if (e.isDirectory) await collect(rel);
+              else allFiles.push(`/${rel}`);
+            }
+          };
+          await collect('');
+          for (const p of allFiles) {
+            const clean = p.replace(/^\//, '');
+            const data = await NativeFileSystemService.readFile(clean);
+            if (data === null) continue;
+            const lines = data.split('\n');
+            lines.forEach((line, idx) => {
+              const match = re ? re.test(line) : line.toLowerCase().includes(query.toLowerCase());
+              if (match) results.push({ path: p, line: idx + 1, preview: line.slice(0, 120) });
+            });
+          }
+          return results;
+        } catch (e) { console.warn('native search failed', e); }
+      }
+      const vfs = getVirtualFS();
       for (const [path, content] of Object.entries(vfs)) {
         const lines = content.split('\n');
         lines.forEach((line, idx) => {
@@ -288,7 +386,24 @@ function makeShim(): VeloShim {
       }
       return results;
     },
-    listAllFiles: async (_root: string) => Object.keys(getVirtualFS()),
+    listAllFiles: async (_root: string) => {
+      if (Capacitor.isNativePlatform() && NativeFileSystemService.isAvailable()) {
+        try {
+          const all: string[] = [];
+          const collect = async (sub: string) => {
+            const ents = await NativeFileSystemService.listFiles(sub);
+            for (const e of ents) {
+              const rel = sub ? `${sub}/${e.name}` : e.name;
+              if (e.isDirectory) await collect(rel);
+              else all.push(`/${rel}`);
+            }
+          };
+          await collect('');
+          if (all.length > 0) return all;
+        } catch {}
+      }
+      return Object.keys(getVirtualFS());
+    },
 
     // Terminal - not supported
     terminalCreate: async () => {},
