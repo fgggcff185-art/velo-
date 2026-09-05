@@ -6,7 +6,7 @@ export default defineConfig({
   base: './',
   build: {
     outDir: 'dist',
-    target: 'chrome128',
+    target: 'es2017',
     chunkSizeWarningLimit: 20000,
     minify: 'esbuild',
     cssMinify: true,
@@ -26,7 +26,7 @@ export default defineConfig({
     exclude: ['electron'],
   },
   esbuild: {
-    target: 'chrome128',
+    target: 'es2017',
     legalComments: 'none',
     treeShaking: true,
   },

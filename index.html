@@ -8,6 +8,24 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      // Early error capture for mobile WebView black screen debugging
+      window.__veloErrors = [];
+      window.onerror = function(msg, src, line, col, err) {
+        window.__veloErrors.push(msg + ' @ ' + src + ':' + line);
+        console.log('Early error:', msg, src, line);
+      };
+      // Show something if JS fails to load in 3s
+      setTimeout(function() {
+        var root = document.getElementById('root');
+        if (root && root.innerHTML.indexOf('Loading Velo') !== -1) {
+          // Still loading after 3s, keep showing loader (JS may be parsing)
+        }
+        if (root && !root.innerHTML.trim()) {
+          root.innerHTML = '<div style="padding:20px;background:#0b0e14;color:#f87171;font-family:monospace">App did not start. WebView may be too old. Try updating Android System WebView from Play Store.</div>';
+        }
+      }, 5000);
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
