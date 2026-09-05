@@ -185,10 +185,30 @@ function makeShim(): VeloShim {
     onWindowMaximized: () => () => {},
     onCloseRequest: () => () => {},
 
-    // Dialog / app
-    openFolderDialog: async () => null,
-    openFileDialog: async () => null,
-    getPathForFile: () => '',
+    // Dialog / app - mobile: prompt for virtual folder
+    openFolderDialog: async () => {
+      try {
+        const name = window.prompt('اسم المجلد الجديد (سيتم إنشاؤه في الذاكرة):', 'my-project');
+        if (!name) return null;
+        const clean = name.trim().replace(/[\\/]/g, '-').slice(0, 30) || 'project';
+        const path = `/${clean}`;
+        const vfs = getVirtualFS();
+        if (!Object.keys(vfs).some((k) => k.startsWith(path + '/'))) {
+          vfs[`${path}/welcome.js`] = `// ${clean}\nconsole.log("Hello from ${clean}");\n`;
+          vfs[`${path}/README.md`] = `# ${clean}\nProject created on mobile\n`;
+          saveVirtualFS(vfs);
+        }
+        return path;
+      } catch { return null; }
+    },
+    openFileDialog: async () => {
+      const vfs = getVirtualFS();
+      const files = Object.keys(vfs);
+      if (files.length === 0) return null;
+      const choice = window.prompt(`اختر ملف (انسخ الاسم):\n${files.slice(0,8).join('\n')}`, files[0]);
+      return choice && vfs[choice] !== undefined ? choice : null;
+    },
+    getPathForFile: (file: File) => (file as any).path || file.name,
     openPath: async () => {},
     showItemInFolder: async () => {},
 

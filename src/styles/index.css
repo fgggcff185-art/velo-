@@ -3288,9 +3288,9 @@ body.sashing .xterm {
 /* ============ Mobile responsive (Capacitor) ============ */
 @media (max-width: 768px) {
   html, body, #root { overflow: auto; height: 100%; }
-  .app { height: 100dvh; overflow: hidden; }
-  /* Titlebar: hide desktop window controls, compact */
-  .titlebar { height: 48px; min-height: 48px; padding-top: env(safe-area-inset-top); }
+  .app { height: 100dvh; overflow: hidden; padding-top: env(safe-area-inset-top); }
+  /* Titlebar: hide desktop window controls, compact - add status bar offset */
+  .titlebar { height: 48px; min-height: 48px; padding-top: max(4px, env(safe-area-inset-top)); background: #0d1117 !important; }
   .titlebar-right { display: none !important; }
   .titlebar-center { display: none; }
   .titlebar-left { gap: 6px; }
@@ -3316,8 +3316,15 @@ body.sashing .xterm {
   .welcome-actions { flex-direction: column; width: 100%; max-width: 280px; }
   .welcome-actions .btn-primary, .welcome-actions .btn-ghost { width: 100%; justify-content: center; }
   .welcome-shortcuts { grid-template-columns: 1fr; gap: 6px 0; margin-top: 16px; font-size: 11px; width: 100%; max-width: 300px; }
-  /* AI panel as overlay on mobile - show when rendered */
-  .ai-panel { position: fixed !important; right: 0; top: 48px; bottom: 0; width: 92% !important; max-width: 360px; z-index: 550; border-left: 1px solid var(--border); box-shadow: -4px 0 24px rgba(0,0,0,0.4); }
+  /* AI panel as overlay on mobile - solid background, no transparency */
+  .ai-panel { position: fixed !important; right: 0; top: 48px; bottom: 0; width: 92% !important; max-width: 360px; z-index: 550; border-left: 1px solid var(--border); box-shadow: -4px 0 24px rgba(0,0,0,0.5); background: var(--bg-1) !important; background-color: #0d1117 !important; }
+  .ai-chat { background: var(--bg-1) !important; }
+  /* AI header: wrap on small screen */
+  .ai-chat-header { flex-wrap: wrap; gap: 6px; padding: 8px 10px; height: auto; min-height: 44px; align-items: center; }
+  .ai-mode-switch { flex: 1 1 auto; min-width: 0; }
+  .ai-mode-switch button { padding: 5px 8px; font-size: 11px; gap: 4px; }
+  .model-switcher { max-width: 100%; flex: 1 1 100%; justify-content: flex-start; margin-top: 4px; }
+  .ms-pill { max-width: 100%; font-size: 11px; }
   .ai-sash { display: none; }
   /* Terminal: smaller */
   .terminal-panel { height: 36% !important; max-height: 220px; }
